@@ -355,6 +355,7 @@ export default {
     users: '用户管理',
     groups: '分组管理',
     channels: '渠道管理',
+    modelPlaza: '模型广场',
     availableChannels: '可用渠道',
     subscriptions: '订阅管理',
     accounts: '账号管理',
@@ -989,6 +990,39 @@ export default {
       intervals: '阶梯定价',
       unitPerMillion: '/ 1M token',
       unitPerRequest: '/ 次'
+    }
+  },
+
+  modelPlaza: {
+    title: '模型广场',
+    description: '用更直观的方式浏览你当前账号可用的模型目录',
+    searchPlaceholder: '搜索模型、平台、分组...',
+    refreshCta: '刷新',
+    heroBadge: '探索式目录',
+    heroTitle: '先逛模型，再决定怎么调用',
+    heroDescription: '这里不是照搬表格，而是把可用模型、定价线索、可访问分组和平台氛围放进更易浏览的展示里。',
+    stats: {
+      models: '模型数',
+      platforms: '平台数',
+      groups: '可访问分组'
+    },
+    empty: {
+      title: '暂时还没有可浏览的模型',
+      description: '当渠道和分组权限配置完成后，这里会自动展示你的模型目录。'
+    },
+    card: {
+      accessibleGroups: '可访问分组',
+      availableOn: '可用渠道',
+      pricing: '价格线索',
+      channelCount: '{count} 个渠道',
+      pricingVariants: '{count} 套定价',
+      noPricing: '暂未配置定价',
+      noGroups: '暂无可访问分组',
+      billingMode: {
+        token: '按 Token 计费',
+        perRequest: '按次计费',
+        image: '按图片计费'
+      }
     }
   },
 

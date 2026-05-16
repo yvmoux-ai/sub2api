@@ -355,6 +355,7 @@ export default {
     users: 'Users',
     groups: 'Groups',
     channels: 'Channels',
+    modelPlaza: 'Model Plaza',
     availableChannels: 'Available Channels',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
@@ -985,6 +986,39 @@ export default {
       intervals: 'Tiered Pricing',
       unitPerMillion: '/ 1M tokens',
       unitPerRequest: '/ request'
+    }
+  },
+
+  modelPlaza: {
+    title: 'Model Plaza',
+    description: 'Browse the models available to your account in an exploration-first view',
+    searchPlaceholder: 'Search models, platforms, groups...',
+    refreshCta: 'Refresh',
+    heroBadge: 'Discoverable catalog',
+    heroTitle: 'Explore models before you call them',
+    heroDescription: 'A more visual take on your available models, with pricing hints, accessible groups, and platform atmosphere in one place.',
+    stats: {
+      models: 'Models',
+      platforms: 'Platforms',
+      groups: 'Accessible Groups'
+    },
+    empty: {
+      title: 'No models available yet',
+      description: 'Once channels and group permissions are configured, your model catalog will appear here.'
+    },
+    card: {
+      accessibleGroups: 'Accessible groups',
+      availableOn: 'Available on',
+      pricing: 'Pricing',
+      channelCount: '{count} channel | {count} channels',
+      pricingVariants: '{count} pricing setup | {count} pricing setups',
+      noPricing: 'Pricing not configured',
+      noGroups: 'No accessible groups',
+      billingMode: {
+        token: 'Token billing',
+        perRequest: 'Per request',
+        image: 'Image billing'
+      }
     }
   },
 

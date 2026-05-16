@@ -368,6 +368,21 @@ const ChannelIcon = {
     )
 }
 
+const ModelPlazaIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M12 3l1.8 4.914a1.5 1.5 0 00.886.886L19.5 10.5l-4.814 1.7a1.5 1.5 0 00-.886.886L12 18l-1.8-4.914a1.5 1.5 0 00-.886-.886L4.5 10.5l4.814-1.7a1.5 1.5 0 00.886-.886L12 3zM18.75 3.75v3m-1.5-1.5h3M5.25 16.5v3m-1.5-1.5h3'
+        })
+      ]
+    )
+}
+
 const CreditCardIcon = {
   render: () =>
     h(
@@ -663,6 +678,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   const items: NavItem[] = []
   if (withDashboard) {
     items.push({ path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon })
+    items.push({ path: '/model-plaza', label: t('nav.modelPlaza'), icon: ModelPlazaIcon })
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
@@ -697,7 +713,12 @@ const userNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(tru
 // Personal navigation items (for admin's "My Account" section, without Dashboard).
 // Admins access 可用渠道 from this section just like regular users — there is no
 // separate admin entry, since the page is purely a user-facing view.
-const personalNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(false)))
+const personalNavItems = computed((): NavItem[] =>
+  finalizeNav([
+    { path: '/model-plaza', label: t('nav.modelPlaza'), icon: ModelPlazaIcon },
+    ...buildSelfNavItems(false)
+  ])
+)
 
 // Custom menu items filtered by visibility
 const customMenuItemsForUser = computed(() => {
