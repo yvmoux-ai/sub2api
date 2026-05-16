@@ -138,13 +138,19 @@
                 {{ t('modelPlaza.card.pricing') }}
               </div>
               <div class="mt-3 space-y-1.5">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                <div class="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
                   {{ billingModeLabel(model.representativePricing) }}
+                  <span
+                    v-if="multiplierSummary(model.representativePricing, model.groups)"
+                    class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:border-amber-800/60 dark:bg-amber-900/30 dark:text-amber-300"
+                  >
+                    {{ multiplierSummary(model.representativePricing, model.groups) }}
+                  </span>
                 </div>
-                <div class="sr-only">{{ displayPricingSummaryFixed(model.representativePricing) }}</div>
+                <div class="sr-only">{{ displayPricingSummaryFixed(model.representativePricing, model.groups) }}</div>
                 <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
                   <div
-                    v-for="item in pricingDetailRows(model.representativePricing)"
+                    v-for="item in pricingDetailRows(model.representativePricing, model.groups)"
                     :key="item.label"
                     class="flex items-center justify-between gap-3"
                   >
@@ -152,7 +158,7 @@
                     <span class="font-medium text-gray-900 dark:text-white">{{ item.value }}</span>
                   </div>
                   <div
-                    v-for="tier in imageTierRows(model.representativePricing)"
+                    v-for="tier in imageTierRows(model.representativePricing, model.groups)"
                     :key="tier.label"
                     class="flex items-center justify-between gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-dark-500 dark:bg-dark-800/60"
                   >
@@ -223,7 +229,7 @@ import userChannelsAPI, {
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import type { GroupPlatform, SubscriptionType } from '@/types'
+import type { Group, GroupPlatform, SubscriptionType } from '@/types'
 
 interface ModelCardGroup {
   id: number
@@ -231,6 +237,8 @@ interface ModelCardGroup {
   platform: GroupPlatform
   subscription_type: SubscriptionType
   rate_multiplier: number
+  image_rate_independent: boolean
+  image_rate_multiplier: number
 }
 
 interface ModelCard {
@@ -350,7 +358,8 @@ function getPlatformTheme(platform: GroupPlatform) {
   }
 }
 
-function aggregateModels(channels: UserAvailableChannel[]): ModelCard[] {
+function aggregateModels(channels: UserAvailableChannel[], availableGroups: Group[]): ModelCard[] {
+  const availableGroupMap = new Map(availableGroups.map((group) => [group.id, group]))
   const map = new Map<
     string,
     {
@@ -379,12 +388,15 @@ function aggregateModels(channels: UserAvailableChannel[]): ModelCard[] {
 
         existing.channels.add(channel.name)
         for (const group of section.groups) {
+          const fullGroup = availableGroupMap.get(group.id)
           existing.groups.set(group.id, {
             id: group.id,
             name: group.name,
             platform: group.platform as GroupPlatform,
             subscription_type: (group.subscription_type || 'standard') as SubscriptionType,
-            rate_multiplier: group.rate_multiplier
+            rate_multiplier: group.rate_multiplier,
+            image_rate_independent: fullGroup?.image_rate_independent ?? false,
+            image_rate_multiplier: fullGroup?.image_rate_multiplier ?? 1
           })
         }
         if (!existing.representativePricing && model.pricing) {
@@ -424,6 +436,81 @@ function formatPerMillionPrice(value: number | null): string | null {
   return formatPrice(value * 1_000_000)
 }
 
+function priceLabel(key: 'input' | 'output' | 'cacheWrite' | 'cacheRead' | 'perRequest' | 'defaultPrice') {
+  const zh = locale.value.startsWith('zh')
+  switch (key) {
+    case 'input':
+      return zh ? '输入' : 'Input'
+    case 'output':
+      return zh ? '输出' : 'Output'
+    case 'cacheWrite':
+      return zh ? '缓存写入' : 'Cache write'
+    case 'cacheRead':
+      return zh ? '缓存读取' : 'Cache read'
+    case 'perRequest':
+      return zh ? '单次价格' : 'Per request'
+    default:
+      return zh ? '默认价格' : 'Default price'
+  }
+}
+
+function formatRange(values: number[], formatter: (value: number) => string | null, suffix = ''): string {
+  const validValues = values.filter((value) => Number.isFinite(value))
+  if (validValues.length === 0) return '-'
+
+  const min = Math.min(...validValues)
+  const max = Math.max(...validValues)
+  const formattedMin = formatter(min)
+  const formattedMax = formatter(max)
+  if (!formattedMin || !formattedMax) return '-'
+
+  if (Math.abs(min - max) < 1e-12) {
+    return `${formattedMin}${suffix}`
+  }
+
+  return `${formattedMin} - ${formattedMax}${suffix}`
+}
+
+function effectiveMultiplier(pricing: UserSupportedModelPricing, group: ModelCardGroup): number {
+  if (pricing.billing_mode === 'image' && group.image_rate_independent) {
+    return group.image_rate_multiplier || 1
+  }
+  return userGroupRates.value[group.id] ?? group.rate_multiplier ?? 1
+}
+
+function formatMultiplier(value: number): string {
+  if (!Number.isFinite(value)) return '-'
+  return `${value.toFixed(value >= 1 ? 2 : 3).replace(/\.?0+$/, '')}x`
+}
+
+function multiplierSummary(pricing: UserSupportedModelPricing | null, groups: ModelCardGroup[]): string {
+  if (!pricing || groups.length === 0) return ''
+
+  const values = groups.map((group) => effectiveMultiplier(pricing, group)).filter((value) => Number.isFinite(value))
+  if (values.length === 0) return ''
+
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const label = pricing.billing_mode === 'image'
+    ? (locale.value.startsWith('zh') ? '图片倍率' : 'Image multiplier')
+    : (locale.value.startsWith('zh') ? '有效倍率' : 'Effective multiplier')
+  const valueText = Math.abs(min - max) < 1e-12
+    ? formatMultiplier(min)
+    : `${formatMultiplier(min)} - ${formatMultiplier(max)}`
+
+  return `${label}: ${valueText}`
+}
+
+function scaledValues(
+  pricing: UserSupportedModelPricing,
+  groups: ModelCardGroup[],
+  basePrice: number | null
+): number[] {
+  if (basePrice === null || Number.isNaN(basePrice)) return []
+  if (groups.length === 0) return [basePrice]
+  return groups.map((group) => basePrice * effectiveMultiplier(pricing, group))
+}
+
 function billingModeLabel(pricing: UserSupportedModelPricing | null): string {
   if (!pricing) return t('modelPlaza.card.noPricing')
   if (pricing.billing_mode === 'per_request') return t('modelPlaza.card.billingMode.perRequest')
@@ -431,29 +518,6 @@ function billingModeLabel(pricing: UserSupportedModelPricing | null): string {
   return t('modelPlaza.card.billingMode.token')
 }
 
-/*
-  if (!pricing) return t('modelPlaza.card.noPricing')
-
-  if (pricing.billing_mode === 'per_request') {
-    return pricing.per_request_price !== null
-      ? `${formatPrice(pricing.per_request_price)} / req`
-      : t('modelPlaza.card.noPricing')
-  }
-
-  if (pricing.billing_mode === 'image') {
-    const imagePrice = pricing.per_request_price ?? pricing.image_output_price
-    return imagePrice !== null
-      ? `${formatPrice(imagePrice)} / image`
-      : t('modelPlaza.card.noPricing')
-  }
-
-  const parts: string[] = []
-  if (pricing.input_price !== null) parts.push(`${locale.value.startsWith('zh') ? '输入' : 'Input'} ${formatPrice(pricing.input_price)}`)
-  if (pricing.output_price !== null) parts.push(`${locale.value.startsWith('zh') ? '输出' : 'Output'} ${formatPrice(pricing.output_price)}`)
-  if (parts.length === 0) return t('modelPlaza.card.noPricing')
-  return `${parts.join(' · ')} / 1M`
-}
-*/
 function channelCountText(count: number): string {
   if (locale.value.startsWith('zh')) return t('modelPlaza.card.channelCount', { count })
   return `${count} ${count === 1 ? 'channel' : 'channels'}`
@@ -464,83 +528,60 @@ function pricingVariantText(count: number): string {
   return `${count} ${count === 1 ? 'pricing setup' : 'pricing setups'}`
 }
 
-  /*
+function displayPricingSummaryFixed(pricing: UserSupportedModelPricing | null, groups: ModelCardGroup[]): string {
   if (!pricing) return t('modelPlaza.card.noPricing')
 
   if (pricing.billing_mode === 'per_request') {
     return pricing.per_request_price !== null
-      ? `${formatPrice(pricing.per_request_price)} / req`
+      ? formatRange(scaledValues(pricing, groups, pricing.per_request_price), formatPrice, ' / req')
       : t('modelPlaza.card.noPricing')
   }
 
   if (pricing.billing_mode === 'image') {
     const imagePrice = pricing.per_request_price ?? pricing.image_output_price
     return imagePrice !== null
-      ? `${formatPrice(imagePrice)} / image`
-      : t('modelPlaza.card.noPricing')
-  }
-
-  const parts: string[] = []
-  if (pricing.input_price !== null)
-    parts.push(`${locale.value.startsWith('zh') ? '输入' : 'Input'} ${formatPrice(pricing.input_price)}`)
-  if (pricing.output_price !== null)
-    parts.push(`${locale.value.startsWith('zh') ? '输出' : 'Output'} ${formatPrice(pricing.output_price)}`)
-  if (parts.length === 0) return t('modelPlaza.card.noPricing')
-  return `${parts.join(locale.value.startsWith('zh') ? ' / ' : ' · ')} / 1M`
-}
-
-*/
-function displayPricingSummaryFixed(pricing: UserSupportedModelPricing | null): string {
-  if (!pricing) return t('modelPlaza.card.noPricing')
-
-  if (pricing.billing_mode === 'per_request') {
-    return pricing.per_request_price !== null
-      ? `${formatPrice(pricing.per_request_price)} / req`
-      : t('modelPlaza.card.noPricing')
-  }
-
-  if (pricing.billing_mode === 'image') {
-    const imagePrice = pricing.per_request_price ?? pricing.image_output_price
-    return imagePrice !== null
-      ? `${formatPrice(imagePrice)} / image`
+      ? formatRange(scaledValues(pricing, groups, imagePrice), formatPrice, ' / image')
       : t('modelPlaza.card.noPricing')
   }
 
   const parts: string[] = []
   if (pricing.input_price !== null) {
     parts.push(
-      `${locale.value.startsWith('zh') ? '输入' : 'Input'} ${formatPerMillionPrice(pricing.input_price)}`
+      `${priceLabel('input')} ${formatRange(scaledValues(pricing, groups, pricing.input_price), formatPerMillionPrice)}`
     )
   }
   if (pricing.output_price !== null) {
     parts.push(
-      `${locale.value.startsWith('zh') ? '输出' : 'Output'} ${formatPerMillionPrice(pricing.output_price)}`
+      `${priceLabel('output')} ${formatRange(scaledValues(pricing, groups, pricing.output_price), formatPerMillionPrice)}`
     )
   }
   if (parts.length === 0) return t('modelPlaza.card.noPricing')
-  return `${parts.join(locale.value.startsWith('zh') ? ' / ' : ' · ')} / 1M`
+  return `${parts.join(locale.value.startsWith('zh') ? ' / ' : ' | ')} / 1M`
 }
 
-function pricingDetailRows(pricing: UserSupportedModelPricing | null): Array<{ label: string; value: string }> {
+function pricingDetailRows(
+  pricing: UserSupportedModelPricing | null,
+  groups: ModelCardGroup[]
+): Array<{ label: string; value: string }> {
   if (!pricing) return []
 
   if (pricing.billing_mode === 'token') {
     return [
       {
-        label: locale.value.startsWith('zh') ? '输入' : 'Input',
-        value: formatPerMillionPrice(pricing.input_price) ?? '-'
+        label: priceLabel('input'),
+        value: formatRange(scaledValues(pricing, groups, pricing.input_price), formatPerMillionPrice, ' / 1M')
       },
       {
-        label: locale.value.startsWith('zh') ? '输出' : 'Output',
-        value: formatPerMillionPrice(pricing.output_price) ?? '-'
+        label: priceLabel('output'),
+        value: formatRange(scaledValues(pricing, groups, pricing.output_price), formatPerMillionPrice, ' / 1M')
       },
       {
-        label: locale.value.startsWith('zh') ? '缓存写入' : 'Cache write',
-        value: formatPerMillionPrice(pricing.cache_write_price) ?? '-'
+        label: priceLabel('cacheWrite'),
+        value: formatRange(scaledValues(pricing, groups, pricing.cache_write_price), formatPerMillionPrice, ' / 1M')
       },
       {
-        label: locale.value.startsWith('zh') ? '缓存读取' : 'Cache read',
-        value: formatPerMillionPrice(pricing.cache_read_price) ?? '-'
+        label: priceLabel('cacheRead'),
+        value: formatRange(scaledValues(pricing, groups, pricing.cache_read_price), formatPerMillionPrice, ' / 1M')
       }
     ]
   }
@@ -548,8 +589,8 @@ function pricingDetailRows(pricing: UserSupportedModelPricing | null): Array<{ l
   if (pricing.billing_mode === 'per_request') {
     return [
       {
-        label: locale.value.startsWith('zh') ? '单次价格' : 'Per request',
-        value: pricing.per_request_price !== null ? `${formatPrice(pricing.per_request_price)} / req` : '-'
+        label: priceLabel('perRequest'),
+        value: formatRange(scaledValues(pricing, groups, pricing.per_request_price), formatPrice, ' / req')
       }
     ]
   }
@@ -557,34 +598,41 @@ function pricingDetailRows(pricing: UserSupportedModelPricing | null): Array<{ l
   const basePrice = pricing.per_request_price ?? pricing.image_output_price
   return [
     {
-      label: locale.value.startsWith('zh') ? '默认价格' : 'Default price',
-      value: basePrice !== null ? `${formatPrice(basePrice)} / image` : '-'
+      label: priceLabel('defaultPrice'),
+      value: formatRange(scaledValues(pricing, groups, basePrice), formatPrice, ' / image')
     }
   ]
 }
 
-function imageTierRows(pricing: UserSupportedModelPricing | null): Array<{ label: string; value: string }> {
+function imageTierRows(
+  pricing: UserSupportedModelPricing | null,
+  groups: ModelCardGroup[]
+): Array<{ label: string; value: string }> {
   if (!pricing || pricing.billing_mode !== 'image' || !pricing.intervals?.length) return []
 
   return pricing.intervals.map((interval) => ({
-    label: interval.tier_label?.trim() || `${interval.min_tokens}-${interval.max_tokens ?? '∞'}`,
-    value: interval.per_request_price !== null ? `${formatPrice(interval.per_request_price)} / image` : '-'
+    label: interval.tier_label?.trim() || `${interval.min_tokens}-${interval.max_tokens ?? 'max'}`,
+    value: formatRange(scaledValues(pricing, groups, interval.per_request_price), formatPrice, ' / image')
   }))
 }
 
 async function loadModels() {
   loading.value = true
   try {
-    const [channels, rates] = await Promise.all([
+    const [channels, groups, rates] = await Promise.all([
       userChannelsAPI.getAvailable(),
+      userGroupsAPI.getAvailable().catch((error: unknown) => {
+        console.error('Failed to load available groups:', error)
+        return [] as Group[]
+      }),
       userGroupsAPI.getUserGroupRates().catch((error: unknown) => {
         console.error('Failed to load user group rates:', error)
         return {} as Record<number, number>
       })
     ])
 
-    models.value = aggregateModels(channels)
     userGroupRates.value = rates
+    models.value = aggregateModels(channels, groups)
   } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('common.error')))
   } finally {
