@@ -99,7 +99,10 @@
           <div class="relative z-10 flex h-full flex-col gap-5">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <div class="mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]" :class="model.platformBadgeClass">
+                <div
+                  class="mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]"
+                  :class="model.platformBadgeClass"
+                >
                   <PlatformIcon :platform="model.platform" size="sm" />
                   {{ model.platform }}
                 </div>
@@ -139,18 +142,20 @@
               </div>
               <div class="mt-3 space-y-1.5">
                 <div class="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                  {{ billingModeLabel(model.representativePricing) }}
+                  {{ billingModeLabel(selectedPricingByModel[model.id] ?? null) }}
                   <span
-                    v-if="multiplierSummary(model.representativePricing, model.groups)"
+                    v-if="multiplierSummary(selectedPricingByModel[model.id] ?? null, selectedGroupsByModel[model.id] ?? null)"
                     class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:border-amber-800/60 dark:bg-amber-900/30 dark:text-amber-300"
                   >
-                    {{ multiplierSummary(model.representativePricing, model.groups) }}
+                    {{ multiplierSummary(selectedPricingByModel[model.id] ?? null, selectedGroupsByModel[model.id] ?? null) }}
                   </span>
                 </div>
-                <div class="sr-only">{{ displayPricingSummaryFixed(model.representativePricing, model.groups) }}</div>
+                <div class="sr-only">
+                  {{ displayPricingSummaryFixed(selectedPricingByModel[model.id] ?? null, selectedGroupsByModel[model.id] ?? null) }}
+                </div>
                 <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
                   <div
-                    v-for="item in pricingDetailRows(model.representativePricing, model.groups)"
+                    v-for="item in pricingDetailRows(selectedPricingByModel[model.id] ?? null, selectedGroupsByModel[model.id] ?? null)"
                     :key="item.label"
                     class="flex items-center justify-between gap-3"
                   >
@@ -158,7 +163,7 @@
                     <span class="font-medium text-gray-900 dark:text-white">{{ item.value }}</span>
                   </div>
                   <div
-                    v-for="tier in imageTierRows(model.representativePricing, model.groups)"
+                    v-for="tier in imageTierRows(selectedPricingByModel[model.id] ?? null, selectedGroupsByModel[model.id] ?? null)"
                     :key="tier.label"
                     class="flex items-center justify-between gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-dark-500 dark:bg-dark-800/60"
                   >
@@ -176,16 +181,25 @@
                   {{ t('modelPlaza.card.accessibleGroups') }}
                 </div>
                 <div v-if="model.groups.length > 0" class="flex flex-wrap gap-1.5">
-                  <GroupBadge
+                  <button
                     v-for="group in model.groups"
                     :key="group.id"
-                    :name="group.name"
-                    :platform="group.platform"
-                    :subscription-type="group.subscription_type"
-                    :rate-multiplier="group.rate_multiplier"
-                    :user-rate-multiplier="userGroupRates[group.id] ?? null"
-                    always-show-rate
-                  />
+                    type="button"
+                    class="rounded-lg transition focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:ring-offset-1 dark:focus:ring-offset-dark-700"
+                    :class="selectedGroupsByModel[model.id]?.id === group.id
+                      ? 'ring-2 ring-sky-400/70 ring-offset-1 dark:ring-sky-500/60 dark:ring-offset-dark-700'
+                      : 'opacity-85 hover:opacity-100'"
+                    @click="selectGroup(model.id, group.id)"
+                  >
+                    <GroupBadge
+                      :name="group.name"
+                      :platform="group.platform"
+                      :subscription-type="group.subscription_type"
+                      :rate-multiplier="group.rate_multiplier"
+                      :user-rate-multiplier="userGroupRates[group.id] ?? null"
+                      always-show-rate
+                    />
+                  </button>
                 </div>
                 <p v-else class="text-sm text-gray-500 dark:text-gray-400">
                   {{ t('modelPlaza.card.noGroups') }}
@@ -248,6 +262,7 @@ interface ModelCard {
   groups: ModelCardGroup[]
   channels: string[]
   representativePricing: UserSupportedModelPricing | null
+  pricingByGroupId: Record<number, UserSupportedModelPricing | null>
   pricingVariantCount: number
   cardClass: string
   auraClass: string
@@ -262,6 +277,7 @@ const loading = ref(false)
 const searchQuery = ref('')
 const models = ref<ModelCard[]>([])
 const userGroupRates = ref<Record<number, number>>({})
+const selectedGroupIds = ref<Record<string, number>>({})
 
 const filteredModels = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -279,6 +295,30 @@ const filteredModels = computed(() => {
 
     return haystack.includes(query)
   })
+})
+
+const selectedGroupsByModel = computed<Record<string, ModelCardGroup | null>>(() => {
+  const result: Record<string, ModelCardGroup | null> = {}
+
+  for (const model of models.value) {
+    const selectedId = selectedGroupIds.value[model.id]
+    result[model.id] = model.groups.find((group) => group.id === selectedId) ?? model.groups[0] ?? null
+  }
+
+  return result
+})
+
+const selectedPricingByModel = computed<Record<string, UserSupportedModelPricing | null>>(() => {
+  const result: Record<string, UserSupportedModelPricing | null> = {}
+
+  for (const model of models.value) {
+    const selectedGroup = selectedGroupsByModel.value[model.id]
+    result[model.id] = selectedGroup
+      ? (model.pricingByGroupId[selectedGroup.id] ?? model.representativePricing)
+      : model.representativePricing
+  }
+
+  return result
 })
 
 const plazaStats = computed(() => {
@@ -369,6 +409,7 @@ function aggregateModels(channels: UserAvailableChannel[], availableGroups: Grou
       channels: Set<string>
       pricingFingerprints: Set<string>
       representativePricing: UserSupportedModelPricing | null
+      pricingByGroupId: Map<number, UserSupportedModelPricing | null>
     }
   >()
 
@@ -383,7 +424,8 @@ function aggregateModels(channels: UserAvailableChannel[], availableGroups: Grou
           groups: new Map<number, ModelCardGroup>(),
           channels: new Set<string>(),
           pricingFingerprints: new Set<string>(),
-          representativePricing: null
+          representativePricing: null,
+          pricingByGroupId: new Map<number, UserSupportedModelPricing | null>()
         }
 
         existing.channels.add(channel.name)
@@ -398,6 +440,9 @@ function aggregateModels(channels: UserAvailableChannel[], availableGroups: Grou
             image_rate_independent: fullGroup?.image_rate_independent ?? false,
             image_rate_multiplier: fullGroup?.image_rate_multiplier ?? 1
           })
+          if (!existing.pricingByGroupId.has(group.id)) {
+            existing.pricingByGroupId.set(group.id, model.pricing ?? null)
+          }
         }
         if (!existing.representativePricing && model.pricing) {
           existing.representativePricing = model.pricing
@@ -419,6 +464,7 @@ function aggregateModels(channels: UserAvailableChannel[], availableGroups: Grou
       groups: [...item.groups.values()].sort((a, b) => a.name.localeCompare(b.name)),
       channels: [...item.channels.values()].sort((a, b) => a.localeCompare(b)),
       representativePricing: item.representativePricing,
+      pricingByGroupId: Object.fromEntries(item.pricingByGroupId),
       pricingVariantCount: item.pricingFingerprints.size,
       ...getPlatformTheme(item.platform)
     }))
@@ -454,23 +500,6 @@ function priceLabel(key: 'input' | 'output' | 'cacheWrite' | 'cacheRead' | 'perR
   }
 }
 
-function formatRange(values: number[], formatter: (value: number) => string | null, suffix = ''): string {
-  const validValues = values.filter((value) => Number.isFinite(value))
-  if (validValues.length === 0) return '-'
-
-  const min = Math.min(...validValues)
-  const max = Math.max(...validValues)
-  const formattedMin = formatter(min)
-  const formattedMax = formatter(max)
-  if (!formattedMin || !formattedMax) return '-'
-
-  if (Math.abs(min - max) < 1e-12) {
-    return `${formattedMin}${suffix}`
-  }
-
-  return `${formattedMin} - ${formattedMax}${suffix}`
-}
-
 function effectiveMultiplier(pricing: UserSupportedModelPricing, group: ModelCardGroup): number {
   if (pricing.billing_mode === 'image' && group.image_rate_independent) {
     return group.image_rate_multiplier || 1
@@ -483,32 +512,24 @@ function formatMultiplier(value: number): string {
   return `${value.toFixed(value >= 1 ? 2 : 3).replace(/\.?0+$/, '')}x`
 }
 
-function multiplierSummary(pricing: UserSupportedModelPricing | null, groups: ModelCardGroup[]): string {
-  if (!pricing || groups.length === 0) return ''
+function multiplierSummary(pricing: UserSupportedModelPricing | null, group: ModelCardGroup | null): string {
+  if (!pricing || !group) return ''
 
-  const values = groups.map((group) => effectiveMultiplier(pricing, group)).filter((value) => Number.isFinite(value))
-  if (values.length === 0) return ''
-
-  const min = Math.min(...values)
-  const max = Math.max(...values)
   const label = pricing.billing_mode === 'image'
     ? (locale.value.startsWith('zh') ? '图片倍率' : 'Image multiplier')
     : (locale.value.startsWith('zh') ? '有效倍率' : 'Effective multiplier')
-  const valueText = Math.abs(min - max) < 1e-12
-    ? formatMultiplier(min)
-    : `${formatMultiplier(min)} - ${formatMultiplier(max)}`
 
-  return `${label}: ${valueText}`
+  return `${label}: ${formatMultiplier(effectiveMultiplier(pricing, group))}`
 }
 
-function scaledValues(
+function scaledValue(
   pricing: UserSupportedModelPricing,
-  groups: ModelCardGroup[],
+  group: ModelCardGroup | null,
   basePrice: number | null
-): number[] {
-  if (basePrice === null || Number.isNaN(basePrice)) return []
-  if (groups.length === 0) return [basePrice]
-  return groups.map((group) => basePrice * effectiveMultiplier(pricing, group))
+): number | null {
+  if (basePrice === null || Number.isNaN(basePrice)) return null
+  if (!group) return basePrice
+  return basePrice * effectiveMultiplier(pricing, group)
 }
 
 function billingModeLabel(pricing: UserSupportedModelPricing | null): string {
@@ -528,40 +549,31 @@ function pricingVariantText(count: number): string {
   return `${count} ${count === 1 ? 'pricing setup' : 'pricing setups'}`
 }
 
-function displayPricingSummaryFixed(pricing: UserSupportedModelPricing | null, groups: ModelCardGroup[]): string {
+function displayPricingSummaryFixed(pricing: UserSupportedModelPricing | null, group: ModelCardGroup | null): string {
   if (!pricing) return t('modelPlaza.card.noPricing')
 
   if (pricing.billing_mode === 'per_request') {
-    return pricing.per_request_price !== null
-      ? formatRange(scaledValues(pricing, groups, pricing.per_request_price), formatPrice, ' / req')
-      : t('modelPlaza.card.noPricing')
+    const price = scaledValue(pricing, group, pricing.per_request_price)
+    return price !== null ? `${formatPrice(price)} / req` : t('modelPlaza.card.noPricing')
   }
 
   if (pricing.billing_mode === 'image') {
-    const imagePrice = pricing.per_request_price ?? pricing.image_output_price
-    return imagePrice !== null
-      ? formatRange(scaledValues(pricing, groups, imagePrice), formatPrice, ' / image')
-      : t('modelPlaza.card.noPricing')
+    const imagePrice = scaledValue(pricing, group, pricing.per_request_price ?? pricing.image_output_price)
+    return imagePrice !== null ? `${formatPrice(imagePrice)} / image` : t('modelPlaza.card.noPricing')
   }
 
   const parts: string[] = []
-  if (pricing.input_price !== null) {
-    parts.push(
-      `${priceLabel('input')} ${formatRange(scaledValues(pricing, groups, pricing.input_price), formatPerMillionPrice)}`
-    )
-  }
-  if (pricing.output_price !== null) {
-    parts.push(
-      `${priceLabel('output')} ${formatRange(scaledValues(pricing, groups, pricing.output_price), formatPerMillionPrice)}`
-    )
-  }
+  const inputPrice = scaledValue(pricing, group, pricing.input_price)
+  const outputPrice = scaledValue(pricing, group, pricing.output_price)
+  if (inputPrice !== null) parts.push(`${priceLabel('input')} ${formatPerMillionPrice(inputPrice)}`)
+  if (outputPrice !== null) parts.push(`${priceLabel('output')} ${formatPerMillionPrice(outputPrice)}`)
   if (parts.length === 0) return t('modelPlaza.card.noPricing')
   return `${parts.join(locale.value.startsWith('zh') ? ' / ' : ' | ')} / 1M`
 }
 
 function pricingDetailRows(
   pricing: UserSupportedModelPricing | null,
-  groups: ModelCardGroup[]
+  group: ModelCardGroup | null
 ): Array<{ label: string; value: string }> {
   if (!pricing) return []
 
@@ -569,51 +581,74 @@ function pricingDetailRows(
     return [
       {
         label: priceLabel('input'),
-        value: formatRange(scaledValues(pricing, groups, pricing.input_price), formatPerMillionPrice, ' / 1M')
+        value: formatPerMillionPrice(scaledValue(pricing, group, pricing.input_price)) ?? '-'
       },
       {
         label: priceLabel('output'),
-        value: formatRange(scaledValues(pricing, groups, pricing.output_price), formatPerMillionPrice, ' / 1M')
+        value: formatPerMillionPrice(scaledValue(pricing, group, pricing.output_price)) ?? '-'
       },
       {
         label: priceLabel('cacheWrite'),
-        value: formatRange(scaledValues(pricing, groups, pricing.cache_write_price), formatPerMillionPrice, ' / 1M')
+        value: formatPerMillionPrice(scaledValue(pricing, group, pricing.cache_write_price)) ?? '-'
       },
       {
         label: priceLabel('cacheRead'),
-        value: formatRange(scaledValues(pricing, groups, pricing.cache_read_price), formatPerMillionPrice, ' / 1M')
+        value: formatPerMillionPrice(scaledValue(pricing, group, pricing.cache_read_price)) ?? '-'
       }
     ]
   }
 
   if (pricing.billing_mode === 'per_request') {
+    const value = scaledValue(pricing, group, pricing.per_request_price)
     return [
       {
         label: priceLabel('perRequest'),
-        value: formatRange(scaledValues(pricing, groups, pricing.per_request_price), formatPrice, ' / req')
+        value: value !== null ? `${formatPrice(value)} / req` : '-'
       }
     ]
   }
 
-  const basePrice = pricing.per_request_price ?? pricing.image_output_price
+  const basePrice = scaledValue(pricing, group, pricing.per_request_price ?? pricing.image_output_price)
   return [
     {
       label: priceLabel('defaultPrice'),
-      value: formatRange(scaledValues(pricing, groups, basePrice), formatPrice, ' / image')
+      value: basePrice !== null ? `${formatPrice(basePrice)} / image` : '-'
     }
   ]
 }
 
 function imageTierRows(
   pricing: UserSupportedModelPricing | null,
-  groups: ModelCardGroup[]
+  group: ModelCardGroup | null
 ): Array<{ label: string; value: string }> {
   if (!pricing || pricing.billing_mode !== 'image' || !pricing.intervals?.length) return []
 
-  return pricing.intervals.map((interval) => ({
-    label: interval.tier_label?.trim() || `${interval.min_tokens}-${interval.max_tokens ?? 'max'}`,
-    value: formatRange(scaledValues(pricing, groups, interval.per_request_price), formatPrice, ' / image')
-  }))
+  return pricing.intervals.map((interval) => {
+    const tierPrice = scaledValue(pricing, group, interval.per_request_price)
+    return {
+      label: interval.tier_label?.trim() || `${interval.min_tokens}-${interval.max_tokens ?? 'max'}`,
+      value: tierPrice !== null ? `${formatPrice(tierPrice)} / image` : '-'
+    }
+  })
+}
+
+function selectGroup(modelId: string, groupId: number) {
+  selectedGroupIds.value = {
+    ...selectedGroupIds.value,
+    [modelId]: groupId
+  }
+}
+
+function initializeSelectedGroups(nextModels: ModelCard[]) {
+  const nextSelected: Record<string, number> = {}
+
+  for (const model of nextModels) {
+    const currentId = selectedGroupIds.value[model.id]
+    const matched = model.groups.find((group) => group.id === currentId)
+    nextSelected[model.id] = matched?.id ?? model.groups[0]?.id ?? 0
+  }
+
+  selectedGroupIds.value = nextSelected
 }
 
 async function loadModels() {
@@ -632,7 +667,9 @@ async function loadModels() {
     ])
 
     userGroupRates.value = rates
-    models.value = aggregateModels(channels, groups)
+    const nextModels = aggregateModels(channels, groups)
+    initializeSelectedGroups(nextModels)
+    models.value = nextModels
   } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('common.error')))
   } finally {
